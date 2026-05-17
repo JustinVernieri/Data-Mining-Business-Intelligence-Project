@@ -1,0 +1,939 @@
+---
+title: "DMBI Project"
+author: "Justin Vernieri"
+date: "2026-05-06"
+output: html_document
+---
+
+# READING PENGUINS DATA CSV FILE
+```{r}
+penguins<-read.csv("C://Users//justi//OneDrive//Documents//Rutgers Senior//Senior Sem 2//Data Mining Business Intelligence//penguins_size.csv")
+print(penguins)
+```
+
+# DATA EXPLORATION
+```{r}
+nrow(penguins) # 344 rows
+ncol(penguins) # 7 columns
+dim(penguins)  # 344 7 dimensionality
+names(penguins) # column names
+str(penguins) # structure of data
+summary(penguins)
+
+# Pie Chart of Species Distribution
+library(ggplot2)
+library(dplyr)
+
+species_counts <- penguins %>%
+  group_by(species) %>%
+  summarise(n = n()) %>%
+  mutate(percent = n / sum(n) * 100)
+
+ggplot(species_counts, aes(x = "", y = percent, fill = species)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar("y") +
+  geom_text(aes(label = paste0(round(percent, 1), "%")),
+            position = position_stack(vjust = 0.5)) +
+  labs(title = "Penguin Species Distribution") +
+  theme_void() +
+  scale_fill_brewer(palette = "Set2")
+
+# Frequency Distributions of Categorical Attributes
+barplot(
+  table(penguins$species),
+  col = "skyblue",
+  main = "Species Distribution",
+  ylab = "Count")
+
+barplot(
+  table(penguins$island),
+  col = "lightgreen",
+  main = "Island Distribution",
+  ylab = "Count")
+
+barplot(
+  table(penguins$sex),
+  col = "salmon",
+  main = "Sex Distribution",
+  ylab = "Count")
+
+# Histograms for Numerical Attributes
+hist(penguins$culmen_depth_mm)
+hist(penguins$culmen_length_mm)
+hist(penguins$body_mass_g)
+hist(penguins$flipper_length_mm)
+
+# Boxplots of numerical attributes for each species
+boxplot(culmen_depth_mm ~ species, data=penguins)
+boxplot(culmen_length_mm ~ species, data=penguins)
+boxplot(body_mass_g ~ species, data=penguins)
+boxplot(flipper_length_mm ~ species, data=penguins)
+```
+
+# DATA PREPROCESSING & CLEANING
+```{r}
+# Remove missing values
+penguins_clean <- na.omit(penguins) # Rows with missing values were removed to ensure model consistency
+
+# Convert character data types to factor
+# Categorical variables were converted to factors for proper handling in modeling
+penguins_clean$species <- as.factor(penguins_clean$species)
+penguins_clean$island <- as.factor(penguins_clean$island)
+penguins_clean$sex <- as.factor(penguins_clean$sex)
+
+# Feature Selection / Relationship Analysis
+numeric_data <- penguins_clean[, sapply(penguins_clean, is.numeric)]
+cor_matrix <- cor(numeric_data)
+cor_matrix
+
+heatmap(
+  cor_matrix,
+  main = "Correlation Heatmap",
+  col = colorRampPalette(c("blue", "white", "red"))(50))
+
+library(corrplot)
+corrplot(
+  cor_matrix,
+  method = "color",
+  type = "upper",
+  col = colorRampPalette(c("blue", "white", "red"))(200),
+  tl.col = "black",
+  tl.srt = 45,
+  addCoef.col = "black")
+# The heatmap reveals moderate to strong correlations among certain predictors, suggesting potential multicollinearity. 
+# However, no correlations exceeded a critical threshold (e.g., 0.9), so all variables were retained. 
+
+# Scatterplot Matrix
+pairs(
+  penguins_clean[, c(
+    "culmen_length_mm",
+    "culmen_depth_mm",
+    "flipper_length_mm",
+    "body_mass_g"
+  )],
+  col = penguins_clean$species,
+  pch = 19,
+  main = "Scatterplot Matrix")
+
+# Train/Test Data Split
+set.seed(123)
+train_index <- sample(1:nrow(penguins_clean), 0.7 * nrow(penguins_clean))
+
+train_data_original <- penguins_clean[train_index, ]
+test_data_original  <- penguins_clean[-train_index, ]
+
+train_data <- penguins_clean[train_index, ] # for normalized versions
+test_data  <- penguins_clean[-train_index, ]
+
+# Normalize Numerical Variables (for NN, KNN, SVM)
+numeric_cols <- sapply(train_data, is.numeric) # identify numeric columns
+normalize <- function(x) {
+  (x - min(x)) / (max(x) - min(x))}
+
+train_data[, numeric_cols] <- lapply(train_data[, numeric_cols], normalize)
+test_data[, numeric_cols]  <- lapply(test_data[, numeric_cols], normalize)
+
+# Dummy Variable Encoding (for NN, KNN, SVM)
+train_encoded <- data.frame(model.matrix(species ~ . -1, data = train_data))
+test_encoded  <- data.frame(model.matrix(species ~ . -1, data = test_data))
+train_encoded$species <- train_data$species
+test_encoded$species  <- test_data$species
+
+# PCA (principal component analysis)
+# PCA was explored as a dimensionality reduction technique. 
+# However, because the dataset contained relatively few predictors and no extremely high correlations among numerical variables, 
+# dimensionality reduction was ultimately not necessary for improving model performance.
+penguins_numeric <- penguins_clean[, c(
+  "culmen_length_mm",
+  "culmen_depth_mm",
+  "flipper_length_mm",
+  "body_mass_g")]
+
+pca_model <- prcomp(
+  penguins_numeric,
+  scale. = TRUE)
+
+summary(pca_model)
+
+pca_data <- data.frame(
+  PC1 = pca_model$x[,1],
+  PC2 = pca_model$x[,2],
+  species = penguins_clean$species)
+
+var_explained <- round(
+  100 * summary(pca_model)$importance[2, 1:2],
+  1)
+
+plot(
+  pca_data$PC1,
+  pca_data$PC2,
+  col = c("red", "blue", "darkgreen")[
+    as.numeric(pca_data$species)
+  ],
+  pch = 19,
+  xlab = paste0(
+    "PC1 (",
+    var_explained[1],
+    "% Variance)"
+  ),
+  ylab = paste0(
+    "PC2 (",
+    var_explained[2],
+    "% Variance)"
+  ),
+  main = "PCA Projection of Penguins Dataset")
+
+legend(
+  "topright",
+  legend = levels(pca_data$species),
+  col = c("red", "blue", "darkgreen"),
+  pch = 19,
+  bty = "o",
+  bg = "white")
+```
+
+# ALGORITHM 1 - DECISION TREE
+```{r}
+# MODEL 1 - DECISION TREE
+# Using ctree
+library(party)
+penguins_ctree <- ctree(species ~ culmen_length_mm + culmen_depth_mm +
+                          flipper_length_mm + body_mass_g + island + sex,
+                        data = train_data_original)
+penguins_ctree
+plot(penguins_ctree)
+plot(penguins_ctree, type = "simple")
+
+# Predict on training data
+trainPred_ctree <- predict(penguins_ctree, train_data_original)
+train_conf_matrix_ctree <- table(trainPred_ctree, train_data_original$species)
+train_conf_matrix_ctree
+train_accuracy_ctree <- sum(diag(train_conf_matrix_ctree)) / sum(train_conf_matrix_ctree)
+train_accuracy_ctree
+# Predict on test data
+testPred_ctree <- predict(penguins_ctree, test_data_original)
+test_conf_matrix_ctree <- table(testPred_ctree, test_data_original$species)
+test_conf_matrix_ctree
+test_accuracy_ctree <- sum(diag(test_conf_matrix_ctree)) / sum(test_conf_matrix_ctree)
+test_accuracy_ctree
+
+# Using rpart
+library(rpart)
+library(rpart.plot)
+dt_model <- rpart(species ~ culmen_length_mm + culmen_depth_mm +
+                    flipper_length_mm + body_mass_g + island + sex,
+                  data = train_data_original)
+print(dt_model)
+rpart.plot(dt_model,
+           type = 2,
+           extra = 104,
+           fallen.leaves = TRUE)
+
+# Predict on training data
+trainPred_dt <- predict(dt_model, train_data_original, type = 'class')
+train_conf_matrix_dt <- table(trainPred_dt, train_data_original$species)
+train_conf_matrix_dt
+train_accuracy_dt <- sum(diag(train_conf_matrix_dt)) / sum(train_conf_matrix_dt)
+train_accuracy_dt
+# Predict on test data
+testPred_dt <- predict(dt_model, test_data_original, type = "class")
+test_conf_matrix_dt <- table(Predicted = testPred_dt, Actual = test_data_original$species)
+test_conf_matrix_dt
+test_accuracy_dt <- sum(diag(test_conf_matrix_dt)) / sum(test_conf_matrix_dt)
+test_accuracy_dt
+
+# Selecting the best tree (rpart)
+printcp(dt_model) # CP is complexity parameter, xerror is cross-validated error which should be minimized.
+plotcp(dt_model)
+opt <- which.min(dt_model$cptable[, "xerror"]) # select optimal CP
+cp  <- dt_model$cptable[opt, "CP"]
+pruned_model <- prune(dt_model, cp = cp)
+pruned_model
+rpart.plot(pruned_model,
+           type = 2,
+           extra = 104,
+           fallen.leaves = TRUE)
+# Predictions
+pred_pruned <- predict(pruned_model, test_data_original, type = "class")
+# Confusion matrix
+pruned_conf_matrix <- table(pred_pruned, test_data_original$species)
+pruned_conf_matrix
+# Accuracy
+accuracy_pruned <- sum(diag(pruned_conf_matrix))/sum(pruned_conf_matrix)
+accuracy_pruned
+```
+
+# ALGORITHM 2 - RANDOM FOREST
+```{r}
+library(randomForest)
+penguins_rf <- randomForest(species ~ ., data=train_data_original, ntree=100, proximity=T)
+penguins_rf
+table(predict(penguins_rf), train_data_original$species)
+plot(penguins_rf, main = "Random Forest for Penguins Dataset")
+legend(
+  "topright",
+  legend = c("OOB", levels(train_data_original$species)),
+  col = 1:(length(levels(train_data_original$species)) + 1),
+  lty = 1,
+  cex = 0.6)
+# Variable Importance
+importance(penguins_rf)
+varImpPlot(penguins_rf, main = "Variable Importance Plot")
+
+# Predict on training data
+train_pred_rf <- predict(penguins_rf, train_data_original)
+train_conf_matrix_rf <- table(Predicted = train_pred_rf, Actual = train_data_original$species)
+train_conf_matrix_rf
+train_accuracy_rf <- sum(diag(train_conf_matrix_rf))/sum(train_conf_matrix_rf)
+train_accuracy_rf # 1 but this is expected because there are many trees, ensemble learning, and highly flexible model 
+
+# Predict on test data
+test_pred_rf <- predict(penguins_rf, test_data_original)
+conf_matrix_rf <- table(Predicted = test_pred_rf, Actual = test_data_original$species)
+conf_matrix_rf
+accuracy_rf <- sum(diag(conf_matrix_rf)) / sum(conf_matrix_rf)
+accuracy_rf # also 1, which is plausible because the data set is clean, relatively small, and species differ strongly in attributes (ex. Adelie=shorter culmen, smaller body, Gentoo=large flippers/body, Chinstrap=bjgger culmen) # Changing the random split (set.seed to 456) changes the accuracy to 0.980198, which means that my model is robust.
+
+# Margin of Predictions
+rf_margin <- margin(penguins_rf, test_data_original$species)
+plot(rf_margin, main = "Random Forest Margin Plot")
+```
+
+# ALGORITHM 3 - NAIVE BAYES
+```{r}
+library(e1071)
+
+# PARTIAL NAIVE BAYES MODEL 
+# Selecting only two predictors
+penguins_train_nb <- train_data_original[, c("culmen_length_mm",
+                                             "culmen_depth_mm",
+                                             "species")]
+
+penguins_test_nb <- test_data_original[, c("culmen_length_mm",
+                                           "culmen_depth_mm",
+                                           "species")]
+
+
+# Partial Naive Bayes Model, No Normalization Needed
+nb_model <- naiveBayes(
+  species ~ .,
+  data = penguins_train_nb)
+# Confusion Matrix and Accuracy
+nb_pred <- predict(nb_model, penguins_test_nb)
+nb_conf_mat <- table(Predicted = nb_pred, Actual  = test_data_original$species)
+nb_conf_mat
+nb_accuracy <- mean(nb_pred == penguins_test_nb$species)
+nb_accuracy
+
+# FULL NAIVE BAYES MODEL
+nb_full_model <- naiveBayes(
+  species ~ .,
+  data = train_data_original)
+# Confusion Matrix and Accuracy
+nb_full_pred <- predict(nb_full_model, test_data_original)
+nb_full_conf_mat <- table(Predicted = nb_full_pred, Actual   = test_data_original$species)
+nb_full_conf_mat
+nb_full_accuracy <- mean(nb_full_pred == test_data_original$species)
+nb_full_accuracy # accuracy is 1 for the full model, changing the split (set.seed to 456) decreases the accuracy though.
+```
+
+# ALGORITHM 4 - NEURAL NETWORK (NN)
+```{r}
+library(nnet)
+
+# Partial NN Model
+# Select only numeric predictors + target from pre-processed data (which has already been normalized, no encoding needed because we are selecting two numeric predictors). For the partial NN, KNN, and SVM models, we will focus on culmen depth and culmen length as our predictors because are biologically meaningful and separate species relatively well.
+train_scaled_nn <- train_data[, c(
+  "culmen_length_mm",
+  "culmen_depth_mm",
+  "species")]
+
+test_scaled_nn <- test_data[, c(
+  "culmen_length_mm",
+  "culmen_depth_mm",
+  "species")]
+
+# Train Neural Network
+nn_model <- nnet(
+  species ~ .,
+  data = train_scaled_nn,
+  size = 5,
+  maxit = 300,
+  trace = FALSE)
+
+# Predictions and Evaluation
+pred_class_nn <- predict(nn_model, test_scaled_nn, type = "class")
+conf_mat_nn <- table(Predicted = pred_class_nn, Actual = test_scaled_nn$species)
+conf_mat_nn
+accuracy_nn <- mean(pred_class_nn == test_scaled_nn$species)
+accuracy_nn
+
+# Create Decision Region Grid
+x_seq <- seq(min(train_scaled_nn$culmen_length_mm) - 0.5,
+             max(train_scaled_nn$culmen_length_mm) + 0.5,
+             length.out = 200)
+
+y_seq <- seq(min(train_scaled_nn$culmen_depth_mm) - 0.5,
+             max(train_scaled_nn$culmen_depth_mm) + 0.5,
+             length.out = 200)
+
+grid <- expand.grid(
+  culmen_length_mm = x_seq,
+  culmen_depth_mm  = y_seq)
+
+# Predict class for each grid point
+grid_pred <- predict(nn_model, newdata = grid, type = "class")
+
+grid_matrix <- matrix(
+  as.numeric(grid_pred),
+  nrow = length(x_seq),
+  ncol = length(y_seq))
+
+# Plot Decision Regions
+region_colors <- c("mistyrose", "lightblue", "honeydew")
+point_colors  <- c("red", "blue", "darkgreen")
+
+par(mar = c(5, 5, 4, 6))  # extra space on right
+
+image(
+  x = x_seq,
+  y = y_seq,
+  z = t(grid_matrix),
+  col = region_colors,
+  xlab = "Scaled Culmen Length",
+  ylab = "Scaled Culmen Depth",
+  main = "Neural Network Decision Regions (Penguins)")
+
+points(
+  train_scaled_nn$culmen_length_mm,
+  train_scaled_nn$culmen_depth_mm,
+  col = point_colors[as.numeric(train_scaled_nn$species)],
+  pch = 19)
+
+legend(
+  "topright",
+  legend = levels(train_scaled_nn$species),
+  col = point_colors,
+  pch = 19,
+  bty = "o",
+  cex=0.6)
+
+# Partial Model Network Structure
+input_neurons  <- ncol(train_scaled_nn) - 1
+output_neurons <- length(levels(train_scaled_nn$species))
+hidden_neurons <- nn_model$n[2]
+cat("\nNeural network structure:\n")
+cat("Input layer:", input_neurons, "neurons\n")
+cat("Hidden layer:", hidden_neurons, "neurons\n")
+cat("Output layer:", output_neurons, "neurons\n")
+cat("This is a single-hidden-layer neural network.\n")
+
+# FULL NN Model (using all predictors with encoded variables from pre-processing)
+# Separate target variable from predictors
+train_x_nn_full <- train_encoded[, names(train_encoded) != "species"]
+test_x_nn_full <- test_encoded[, names(test_encoded) != "species"]
+
+# Add target variable separately
+train_nn_full <- data.frame(
+  train_x_nn_full,
+  species = train_encoded$species)
+
+test_nn_full <- data.frame(
+  test_x_nn_full,
+  species = test_encoded$species)
+
+# Train full NN model
+set.seed(123)
+
+nn_model_full <- nnet(
+  species ~ .,
+  data = train_nn_full,
+  size = 5,
+  maxit = 500,
+  trace = FALSE)
+nn_model_full
+
+# Full model predictions
+pred_class_nn_full <- predict(
+  nn_model_full,
+  test_nn_full,
+  type = "class")
+
+# Confusion Matrix and Accuracy
+conf_mat_nn_full <- table(
+  Predicted = pred_class_nn_full,
+  Actual = test_nn_full$species)
+conf_mat_nn_full
+
+accuracy_nn_full <- mean(
+  pred_class_nn_full ==
+    test_nn_full$species)
+accuracy_nn_full
+
+# Full Model Network Structure
+input_neurons_full  <- ncol(train_nn_full) - 1
+output_neurons_full <- length(levels(train_nn_full$species))
+hidden_neurons_full <- nn_model_full$n[2]
+
+cat("\nNeural Network Structure:\n")
+cat("Input layer:",input_neurons_full,"neurons\n")
+cat("Hidden layer:",hidden_neurons_full,"neurons\n")
+cat("Output layer:",output_neurons_full,"neurons\n")
+cat("This is a single-hidden-layer neural network.\n")
+```
+
+# ALGORITHM 5 - K-NEAREST NEIGHBOR (KNN)
+```{r}
+library(class)
+
+# Partial KNN Model
+# Select only numeric predictors + target (already normalized in pre-processing, no encoding because we are selecting only numeric predictors).
+train_scaled_knn <- train_data[, c(
+  "culmen_length_mm",
+  "culmen_depth_mm",
+  "species")]
+
+test_scaled_knn <- test_data[, c(
+  "culmen_length_mm",
+  "culmen_depth_mm",
+  "species")]
+
+# Train Partial KNN Model
+k_val <- 5
+
+knn_pred <- knn(
+  train = train_scaled_knn[, 1:2],
+  test  = test_scaled_knn[, 1:2],
+  cl    = train_scaled_knn$species,
+  k     = k_val)
+
+# Confusion Matrix and Accuracy
+knn_conf_mat <- table(Predicted = knn_pred, Actual = test_scaled_knn$species)
+knn_conf_mat
+knn_accuracy <- mean(knn_pred == test_scaled_knn$species)
+knn_accuracy
+
+# Grid for Decision Boundary
+knn_x_seq <- seq(min(train_scaled_knn$culmen_length_mm) - 0.5,
+                 max(train_scaled_knn$culmen_length_mm) + 0.5,
+                 length.out = 200)
+
+knn_y_seq <- seq(min(train_scaled_knn$culmen_depth_mm) - 0.5,
+                 max(train_scaled_knn$culmen_depth_mm) + 0.5,
+                 length.out = 200)
+
+knn_grid <- expand.grid(
+  culmen_length_mm = knn_x_seq,
+  culmen_depth_mm  = knn_y_seq)
+
+# Predict Grid
+knn_grid_pred <- knn(
+  train = train_scaled_knn[, 1:2],
+  test  = knn_grid,
+  cl    = train_scaled_knn$species,
+  k     = k_val)
+
+knn_grid_matrix <- matrix(
+  as.numeric(knn_grid_pred),
+  nrow = length(knn_x_seq),
+  ncol = length(knn_y_seq))
+
+# KNN Plot
+region_colors <- c("mistyrose", "lightblue", "honeydew")
+point_colors  <- c("darkgreen", "blue", "red")
+
+image(
+  x = knn_x_seq,
+  y = knn_y_seq,
+  z = t(knn_grid_matrix),
+  col = region_colors,
+  xlab = "Scaled Culmen Length",
+  ylab = "Scaled Culmen Depth",
+  main = paste("KNN Decision Regions (k =", k_val, ")"))
+
+points(
+  train_scaled_knn$culmen_length_mm,
+  train_scaled_knn$culmen_depth_mm,
+  col = point_colors[as.numeric(train_scaled_knn$species)],
+  pch = 19)
+
+legend(
+  "topright",
+  legend = levels(train_scaled_knn$species),
+  col = point_colors,
+  pch = 19,
+  bty = "o",
+  bg = "white",
+  cex= 0.6)
+
+# Hyperparameter Tuning for 2D KNN Model (using culmen length and depth)
+# Test Multiple k Values
+k_values <- c(1, 3, 5, 7, 9, 11, 13, 15)
+
+accuracy_results_knn <- data.frame(
+  k = integer(),
+  accuracy = numeric())
+
+for(i in k_values){
+  pred_knn <- knn(
+    train = train_scaled_knn[, 1:2],
+    test  = test_scaled_knn[, 1:2],
+    cl    = train_scaled_knn$species,
+    k     = i
+  )
+  
+  acc_knn <- mean(
+    pred_knn ==
+      test_scaled_knn$species
+  )
+  
+  accuracy_results_knn <- rbind(
+    accuracy_results_knn,
+    data.frame(
+      k = i,
+      accuracy = acc_knn
+    )
+  )
+}
+
+accuracy_results_knn
+
+plot(
+  accuracy_results_knn$k,
+  accuracy_results_knn$accuracy,
+  type = "b",
+  pch = 19,
+  xlab = "k Value",
+  ylab = "Classification Accuracy",
+  main = "KNN Accuracy vs k (Penguins Dataset)")
+
+# Find best K for this Partial KNN Model
+best_k <- accuracy_results_knn$k[
+  which.max(accuracy_results_knn$accuracy)]
+
+best_accuracy <- max(
+  accuracy_results_knn$accuracy)
+
+cat("Best k =", best_k, "\n")
+cat("Best Accuracy =", best_accuracy)
+
+
+# FULL KNN Model (using all predictors with encoded variables created in pre-processing)
+# Because all predictors are used in this model (high dimensionality), 2D visualization will not work, but we can still access the accuracy.
+
+# Separate predictors and target
+train_x_knn <- train_encoded[, names(train_encoded) != "species"]
+test_x_knn <- test_encoded[, names(test_encoded) != "species"]
+
+train_y_knn <- train_encoded$species
+test_y_knn  <- test_encoded$species
+
+# Train Full KNN Model
+k_val <- 5
+
+knn_pred_full <- knn(
+  train = train_x_knn,
+  test  = test_x_knn,
+  cl    = train_y_knn,
+  k     = k_val)
+
+# Confusion Matrix and Accuracy
+knn_conf_mat_full <- table(
+  Predicted = knn_pred_full,
+  Actual = test_y_knn)
+knn_conf_mat_full
+
+knn_accuracy_full <- mean(
+  knn_pred_full == test_y_knn)
+knn_accuracy_full
+```
+
+# ALGORITHM 6 - SVM
+```{r}
+library(e1071)
+
+# Partial SVM Model
+# Select two numerical predictors and target (already normalized in pre-processing)
+train_scaled_svm <- train_data[, c(
+  "culmen_length_mm",
+  "culmen_depth_mm",
+  "species")]
+
+test_scaled_svm <- test_data[, c(
+  "culmen_length_mm",
+  "culmen_depth_mm",
+  "species")]
+
+# Train SVM Model
+svm_model <- svm(
+  species ~ .,
+  data = train_scaled_svm,
+  kernel = "radial",
+  cost=1,
+  gamma=1)
+
+# Predictions, Confusion Matrix, Accuracy
+svm_pred <- predict(svm_model, test_scaled_svm)
+svm_conf_mat <- table(Predicted = svm_pred, Actual = test_scaled_svm$species)
+svm_conf_mat
+svm_accuracy <- mean(svm_pred == test_scaled_svm$species)
+svm_accuracy
+
+# Create Grid for Decision Boundary
+svm_x_seq <- seq(min(train_scaled_svm$culmen_length_mm) - 0.5,
+                 max(train_scaled_svm$culmen_length_mm) + 0.5,
+                 length.out = 200)
+
+svm_y_seq <- seq(min(train_scaled_svm$culmen_depth_mm) - 0.5,
+                 max(train_scaled_svm$culmen_depth_mm) + 0.5,
+                 length.out = 200)
+
+svm_grid <- expand.grid(
+  culmen_length_mm = svm_x_seq,
+  culmen_depth_mm  = svm_y_seq)
+
+# Predict Grid and Convert for Plot
+svm_grid_pred <- predict(svm_model, svm_grid)
+
+svm_grid_matrix <- matrix(
+  as.numeric(svm_grid_pred),
+  nrow = length(svm_x_seq),
+  ncol = length(svm_y_seq))
+
+# SVM Plot
+region_colors <- c("mistyrose", "lightblue", "honeydew")
+point_colors  <- c("darkgreen", "blue", "red")
+
+image(
+  x = svm_x_seq,
+  y = svm_y_seq,
+  z = t(svm_grid_matrix),
+  col = region_colors,
+  xlab = "Scaled Culmen Length",
+  ylab = "Scaled Culmen Depth",
+  main = "SVM Decision Regions (Radial Kernel)")
+
+points(
+  train_scaled_svm$culmen_length_mm,
+  train_scaled_svm$culmen_depth_mm,
+  col = point_colors[as.numeric(train_scaled_svm$species)],
+  pch = 19)
+
+legend(
+  "topright",
+  legend = levels(train_scaled_svm$species),
+  col = point_colors,
+  pch = 19,
+  bty = "o",
+  bg = "white", 
+  cex=.7)
+
+# Full model with all predictors using encoded variables from pre-processing
+library(e1071)
+
+# Remove target variable from predictors
+train_x_svm_full <- train_encoded[,names(train_encoded) != "species"]
+test_x_svm_full <- test_encoded[,names(test_encoded) != "species"]
+
+# Add target variable separately
+train_svm_full <- data.frame(
+  train_x_svm_full,
+  species = train_encoded$species)
+
+test_svm_full <- data.frame(
+  test_x_svm_full,
+  species = test_encoded$species)
+
+# Train Full SVM Model
+set.seed(123)
+
+svm_model_full <- svm(
+  species ~ .,
+  data = train_svm_full,
+  kernel = "radial",
+  cost = 1,
+  gamma = 1)
+svm_model_full
+
+# Test predictions on full model
+svm_pred_full <- predict(
+  svm_model_full,
+  test_svm_full)
+
+svm_conf_mat_full <- table(
+  Predicted = svm_pred_full,
+  Actual = test_svm_full$species)
+svm_conf_mat_full
+
+svm_accuracy_full <- mean(
+  svm_pred_full ==
+    test_svm_full$species)
+svm_accuracy_full
+```
+
+# ALGORITHM 7 - K-MEANS CLUSTERING
+```{r}
+set.seed(8953)
+library(fpc)
+
+# Create copy of data set and then remove non-numeric columns and species label
+penguins_kmeans <- penguins_clean
+penguins_kmeans$species <- NULL
+penguins_kmeans$island  <- NULL
+penguins_kmeans$sex     <- NULL
+
+# The variables were scaled prior to clustering to ensure that features with larger magnitudes, 
+# such as body mass, did not dominate the distance calculations.
+penguins_kmeans_scaled <- scale(penguins_kmeans)
+
+# Run K-means
+kmeans_result <- kmeans(penguins_kmeans_scaled, centers = 3)
+kmeans_result
+
+# Check clustering result against Species label
+table(penguins_clean$species, kmeans_result$cluster)
+# Class Gentoo can easily be separated from other clusters, classes Adelie and Chinstrap are to a small degree overlapped with each other
+
+# Plot for Culmen Length and Culmen Depth
+plot(
+  penguins_kmeans_scaled[, c("culmen_length_mm", "culmen_depth_mm")],
+  col = kmeans_result$cluster,
+  pch = 19,
+  xlab = "Culmen Length",
+  ylab = "Culmen Depth",
+  main = "K-Means Clustering (Penguins)")
+
+points(
+  kmeans_result$centers[, c("culmen_length_mm", "culmen_depth_mm")],
+  col = 1:3,
+  pch = 8,
+  cex = 2)
+
+# Alternate Plot for Culmen Length and Flipper Length
+plot(
+  penguins_kmeans_scaled[, c("culmen_length_mm", "flipper_length_mm")],
+  col = kmeans_result$cluster,
+  pch = 19,
+  xlab = "Culmen Length",
+  ylab = "Flipper Length",
+  main = "K-Means Clustering (Penguins)")
+
+points(
+  kmeans_result$centers[, c("culmen_length_mm", "flipper_length_mm")],
+  col = 1:3,
+  pch = 8,
+  cex = 2)
+
+# Alternate Plot for Body Mass and Flipper Length
+plot(
+  penguins_kmeans_scaled[, c("body_mass_g", "flipper_length_mm")],
+  col = kmeans_result$cluster,
+  pch = 19,
+  xlab = "Body Mass",
+  ylab = "Flipper Length",
+  main = "K-Means Clustering (Penguins)")
+
+points(
+  kmeans_result$centers[, c("body_mass_g", "flipper_length_mm")],
+  col = 1:3,
+  pch = 8,
+  cex = 2)
+```
+
+# ALGORITHM 8 - ADABOOST
+```{r}
+library(adabag)
+
+# Train model
+set.seed(123)
+penguins_ada <- boosting(
+  species ~ .,
+  data = train_data_original,
+  boos = TRUE,
+  mfinal = 100)
+penguins_ada
+
+# Test predictions, confusion matrix, and accuracy
+test_pred_ada <- predict.boosting(
+  penguins_ada,
+  newdata = test_data_original)
+
+test_conf_ada <- table(
+  Predicted = test_pred_ada$class,
+  Actual = test_data_original$species)
+test_conf_ada
+
+test_acc_ada <- mean(
+  test_pred_ada$class ==
+    test_data_original$species)
+test_acc_ada
+
+# Variable Importance
+importanceplot(penguins_ada)
+```
+
+# ALGORITHM EVALUATION AND COMPARISON
+```{r}
+model_results <- data.frame(
+  Model = c(
+    "Decision Tree (ctree)",
+    "Decision Tree (rpart)",
+    "Random Forest",
+    "Naive Bayes Partial",
+    "Naive Bayes Full",
+    "Neural Network Partial",
+    "Neural Network Full",
+    "KNN Partial",
+    "KNN Full",
+    "SVM Partial",
+    "SVM Full",
+    "AdaBoost",
+    "K-Means"
+  ),
+  
+  Accuracy = c(
+    test_accuracy_ctree,
+    test_accuracy_dt,
+    accuracy_rf,
+    nb_accuracy,
+    nb_full_accuracy,
+    accuracy_nn,
+    accuracy_nn_full,
+    knn_accuracy,
+    knn_accuracy_full,
+    svm_accuracy,
+    svm_accuracy_full,
+    test_acc_ada,
+    NA
+  )
+)
+
+model_results
+
+barplot(
+  model_results$Accuracy,
+  names.arg = model_results$Model,
+  las = 2,
+  main = "Comparison of Classification Model Accuracy",
+  ylab = "Accuracy",
+  ylim = c(0,1))
+
+library(pheatmap)
+# Set row names
+rownames(model_results) <- model_results$Model
+# Remove model column
+model_results$Model <- NULL
+# Convert to numeric matrix
+accuracy_matrix <- as.matrix(model_results)
+# Accuracy Heatmap
+pheatmap(
+  accuracy_matrix,
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  display_numbers = TRUE,
+  number_format = "%.3f",
+  color = colorRampPalette(
+    c("white", "cadetblue1", "cadetblue4")
+  )(100),
+  main = "Model Accuracy Comparison")
+```
